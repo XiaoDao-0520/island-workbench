@@ -868,8 +868,34 @@ const workTemplates = [
 // 获取今天应该显示的工作任务（含未完成的跨天任务）
 function getTodayWorkTasks() {
   const today = new Date().getDay(); // 0=周日...6=周六
-  const stored = loadTasks('work');
+  let stored = loadTasks('work');
   const result = [];
+
+  // 清理旧版重复任务（同名任务只保留一个）
+  // 把旧版本的无 tplId 但与模板重名的任务标记为模板任务
+  const seenNames = new Set();
+  const cleanedStored = [];
+  stored.forEach(s => {
+    const matchTpl = workTemplates.find(t => t.name === s.name);
+    if (matchTpl) {
+      // 是模板任务：合并 done 状态
+      const existing = cleanedStored.find(c => c.tplId === matchTpl.id);
+      if (existing) {
+        if (s.done) existing.done = true;
+      } else {
+        cleanedStored.push({ ...s, tplId: matchTpl.id });
+      }
+    } else if (!seenNames.has(s.name)) {
+      // 非模板任务：去重
+      seenNames.add(s.name);
+      cleanedStored.push(s);
+    }
+  });
+  stored = cleanedStored;
+  // 如果有清理过，存回
+  if (stored.length !== loadTasks('work').length) {
+    saveTasks('work', stored);
+  }
 
   // 1. 先处理模板任务：今天应该显示的
   workTemplates.forEach(tpl => {
@@ -893,8 +919,10 @@ function getTodayWorkTasks() {
     }
   });
 
-  // 2. 再处理用户手动添加的任务
+  // 2. 再处理用户手动添加的非模板任务
   stored.filter(s => !s.tplId).forEach(s => {
+    // 跳过与模板同名的（已处理过）
+    if (workTemplates.some(t => t.name === s.name)) return;
     result.push(s);
   });
 
