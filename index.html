@@ -855,25 +855,82 @@ const defaultDaily = [
   { id: 1, name: '🥛 每天一瓶牛奶', done: false },
   { id: 2, name: '📖 英语练习30分钟', done: false }
 ];
-const defaultWork = [
-  { id: 1, name: '📑 日常请购图纸下发', done: false, tag: '每日' },
-  { id: 2, name: '🔧 每日技改图纸更新', done: false, tag: '每日' },
-  { id: 3, name: '✅ 每日退库审核更新', done: false, tag: '每日' },
-  { id: 4, name: '📊 项目汇总', done: false, tag: '周三' }
+// 日常工作：定义所有可能的工作任务模板
+// weekday: 0=周日 1=周一 ... 3=周三 5=周五  -1=每个工作日
+const workTemplates = [
+  { id: 1, name: '📑 日常请购图纸下发', weekday: -1, tag: '每日' },
+  { id: 2, name: '🔧 每日技改图纸更新', weekday: -1, tag: '每日' },
+  { id: 3, name: '✅ 每日退库审核更新', weekday: -1, tag: '每日' },
+  { id: 4, name: '📊 项目汇总', weekday: 3, tag: '周三' },
+  { id: 5, name: '📋 周会数据汇总', weekday: 5, tag: '周五' }
 ];
+
+// 获取今天应该显示的工作任务（含未完成的跨天任务）
+function getTodayWorkTasks() {
+  const today = new Date().getDay(); // 0=周日...6=周六
+  const stored = loadTasks('work');
+  const result = [];
+
+  // 1. 先处理模板任务：今天应该显示的
+  workTemplates.forEach(tpl => {
+    // 判断今天是否应该显示
+    const shouldShowToday = (tpl.weekday === -1 && today >= 1 && today <= 5) || tpl.weekday === today;
+    if (!shouldShowToday) {
+      // 即使今天不该显示，但如果之前没完成，也要继续显示
+      const storedTask = stored.find(s => s.tplId === tpl.id && !s.done);
+      if (storedTask) {
+        result.push({ ...tpl, id: storedTask.id, done: false, tplId: tpl.id, overdue: true });
+      }
+      return;
+    }
+    // 今天应该显示：查找是否已有记录
+    const storedTask = stored.find(s => s.tplId === tpl.id);
+    if (storedTask) {
+      result.push({ ...tpl, id: storedTask.id, done: storedTask.done, tplId: tpl.id });
+    } else {
+      // 新任务，还没记录
+      result.push({ ...tpl, id: tpl.id, done: false, tplId: tpl.id });
+    }
+  });
+
+  // 2. 再处理用户手动添加的任务
+  stored.filter(s => !s.tplId).forEach(s => {
+    result.push(s);
+  });
+
+  // 排序：未完成的在前，已完成的在后
+  result.sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return 0;
+  });
+
+  return result;
+}
+
+// 保存工作任务状态
+function saveWorkTaskState(task) {
+  const stored = loadTasks('work');
+  const idx = stored.findIndex(s => s.id === task.id);
+  if (idx >= 0) {
+    stored[idx] = { ...stored[idx], done: task.done };
+  } else {
+    stored.push({ id: task.id, tplId: task.tplId, name: task.name, done: task.done, tag: task.tag });
+  }
+  saveTasks('work', stored);
+}
 
 function loadTasks(type) {
   const key = STORAGE[type];
   let data = localStorage.getItem(key);
   if (!data || data === '[]' || data === 'null') {
-    data = type === 'daily' ? defaultDaily : defaultWork;
+    data = type === 'daily' ? defaultDaily : [];
     saveTasks(type, data);
   } else {
     data = JSON.parse(data);
   }
-  // 容错：如果解析后是空数组也恢复默认
-  if (!Array.isArray(data) || data.length === 0) {
-    data = type === 'daily' ? defaultDaily : defaultWork;
+  // 容错：每日计划空了恢复默认；工作任务由模板生成不恢复
+  if (type === 'daily' && (!Array.isArray(data) || data.length === 0)) {
+    data = defaultDaily;
     saveTasks(type, data);
   }
   return data;
@@ -882,7 +939,8 @@ function saveTasks(type, data) {
   localStorage.setItem(STORAGE[type], JSON.stringify(data));
 }
 function renderTasks(type) {
-  const tasks = loadTasks(type);
+  // 工作任务用动态生成，每日计划用存储
+  const tasks = type === 'work' ? getTodayWorkTasks() : loadTasks(type);
   const list = document.getElementById(type + 'List');
   if (tasks.length === 0) {
     list.innerHTML = '<div class="empty-tip">还没有任务哦，添加一个吧～</div>';
@@ -891,6 +949,9 @@ function renderTasks(type) {
       let tagHtml = '';
       if (t.tag === '每日') tagHtml = '<span class="task-tag workday-tag">工作日</span>';
       else if (t.tag === '周三') tagHtml = '<span class="task-tag weekday-tag">周三</span>';
+      else if (t.tag === '周五') tagHtml = '<span class="task-tag weekday-tag" style="background:#e8f5e9;color:#4caf50">周五</span>';
+      // 跨天未完成的标记
+      if (t.overdue) tagHtml += '<span class="task-tag" style="background:#fff3e0;color:#ff9800">未完成</span>';
       return `
         <div class="task-item ${t.done ? 'completed' : ''}">
           <div class="task-checkbox ${t.done ? 'checked' : ''}" onclick="toggleTask('${type}', ${t.id})"></div>
@@ -909,10 +970,11 @@ function addTask(type) {
   const name = input.value.trim();
   if (!name) { showToast('请输入任务内容'); return; }
   const tasks = loadTasks(type);
-  const newId = tasks.length ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
+  const newId = tasks.length ? Math.max(...tasks.map(t => t.id)) + 1 : 100; // 手动任务ID从100开始
   let tag = null;
   if (type === 'work') {
     if (name.includes('周三') || name.includes('周3') || name.includes('星期三')) tag = '周三';
+    else if (name.includes('周五') || name.includes('周5') || name.includes('星期五')) tag = '周五';
     else tag = '每日';
   }
   tasks.push({ id: newId, name: '✏️ ' + name, done: false, tag });
@@ -922,24 +984,45 @@ function addTask(type) {
   showToast('✨ 任务已添加');
 }
 function toggleTask(type, id) {
-  const tasks = loadTasks(type);
-  const t = tasks.find(x => x.id === id);
-  if (t) {
-    t.done = !t.done;
-    saveTasks(type, tasks);
-    renderTasks(type);
+  if (type === 'work') {
+    // 工作任务：在动态生成的列表里找
+    const tasks = getTodayWorkTasks();
+    const t = tasks.find(x => x.id === id);
+    if (t) {
+      t.done = !t.done;
+      saveWorkTaskState(t);
+      saveTodayHistory();
+      renderTasks(type);
+    }
+  } else {
+    // 每日计划：直接操作存储
+    const tasks = loadTasks(type);
+    const t = tasks.find(x => x.id === id);
+    if (t) {
+      t.done = !t.done;
+      saveTasks(type, tasks);
+      saveTodayHistory();
+      renderTasks(type);
+    }
   }
 }
 function deleteTask(type, id) {
   if (!confirm('确定要删除这个任务吗？')) return;
-  let tasks = loadTasks(type);
-  tasks = tasks.filter(x => x.id !== id);
-  saveTasks(type, tasks);
+  if (type === 'work') {
+    // 工作任务：从存储里删除
+    let stored = loadTasks('work');
+    stored = stored.filter(x => x.id !== id);
+    saveTasks('work', stored);
+  } else {
+    let tasks = loadTasks(type);
+    tasks = tasks.filter(x => x.id !== id);
+    saveTasks(type, tasks);
+  }
   renderTasks(type);
   showToast('已删除');
 }
 function updateProgress(type) {
-  const tasks = loadTasks(type);
+  const tasks = type === 'work' ? getTodayWorkTasks() : loadTasks(type);
   const total = tasks.length;
   const done = tasks.filter(t => t.done).length;
   const percent = total ? Math.round(done / total * 100) : 0;
@@ -950,7 +1033,7 @@ function updateProgress(type) {
 }
 function updateStats() {
   const daily = loadTasks('daily');
-  const work = loadTasks('work');
+  const work = getTodayWorkTasks();
   const all = [...daily, ...work];
   document.getElementById('totalTasks').textContent = all.length;
   document.getElementById('doneTasks').textContent = all.filter(t => t.done).length;
@@ -1208,7 +1291,7 @@ function todayStr() {
 // 保存某一天完成情况到历史（含任务快照，便于回看）
 function saveDayHistory(dateKey) {
   const daily = loadTasks('daily');
-  const work = loadTasks('work');
+  const work = getTodayWorkTasks();
   const all = [...daily, ...work];
   const total = all.length;
   const done = all.filter(t => t.done).length;
@@ -1216,7 +1299,7 @@ function saveDayHistory(dateKey) {
   const hist = loadHistory();
   hist[dateKey] = {
     total, done, pct,
-    daily: JSON.parse(JSON.stringify(daily)),  // 深拷贝快照
+    daily: JSON.parse(JSON.stringify(daily)),
     work: JSON.parse(JSON.stringify(work)),
     ts: Date.now()
   };
@@ -1232,36 +1315,32 @@ function saveTodayHistory() {
 // 1. 每次打开页面，检查上次保存的日期
 // 2. 如果不是今天，说明跨天了：
 //    a) 先把昨天的任务状态归档到 history（防止丢失）
-//    b) 重置 daily/work 的 done 为 false（新的一天重新开始）
-//    c) 更新 LAST_DATE_KEY 为今天
-// 3. 这样既能保留历史，又能每天重新打勾
+//    b) 每日计划：重置 done 为 false（新的一天重新开始）
+//    c) 工作任务：不重置！未完成的继续显示，已完成的按星期规则决定是否再显示
+//    d) 更新 LAST_DATE_KEY 为今天
 function checkAndResetForNewDay() {
   const today = todayStr();
   const lastDate = localStorage.getItem(LAST_DATE_KEY);
 
   if (lastDate && lastDate !== today) {
     // 跨天了！先把上次的任务状态归档（用上次日期）
-    // 注意：此时 daily/work 里的 done 状态还是昨天的，先归档
     saveDayHistory(lastDate);
 
-    // 重置任务 done 状态（新一天重新开始）
-    ['daily', 'work'].forEach(type => {
-      const tasks = loadTasks(type);
-      tasks.forEach(t => t.done = false);
-      saveTasks(type, tasks);
-    });
-    showToast('🌸 新的一天，任务已重置');
+    // 每日计划：重置 done 状态（新一天重新开始）
+    const daily = loadTasks('daily');
+    daily.forEach(t => t.done = false);
+    saveTasks('daily', daily);
+
+    // 工作任务：不重置！
+    // getTodayWorkTasks() 会自动根据星期决定显示哪些
+    // 已完成的周任务（周三/周五）过了那天就不再显示
+    // 未完成的会继续带着"未完成"标签显示
+
+    showToast('🌸 新的一天，任务已更新');
   }
   // 更新今天日期标记
   localStorage.setItem(LAST_DATE_KEY, today);
 }
-
-// 在任务打勾/取消时也同步保存
-const _origToggleTask = toggleTask;
-toggleTask = function(type, id) {
-  _origToggleTask(type, id);
-  saveTodayHistory();
-};
 
 /* ================= 日历渲染 ================= */
 let calCurrent = new Date(); // 当前显示的月份
