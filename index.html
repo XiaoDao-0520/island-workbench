@@ -401,22 +401,20 @@
     box-shadow: 0 4px 14px rgba(0,0,0,0.05);
     margin-bottom: 16px;
   }
-  .english-video {
-    background: linear-gradient(135deg, #2c3e6e, #4a5d8f);
-    height: 200px;
-    display: flex; align-items: center; justify-content: center;
+  .english-video-wrap {
     position: relative;
-    color: #fff;
-    font-size: 50px;
-    cursor: pointer;
+    width: 100%;
+    padding-bottom: 56.25%; /* 16:9 比例 */
+    height: 0;
+    overflow: hidden;
+    border-radius: 16px 16px 0 0;
+    background: #000;
   }
-  .play-btn {
-    width: 60px; height: 60px;
-    background: rgba(255,255,255,0.9);
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    color: #2c3e6e;
-    font-size: 24px;
+  .english-iframe {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    border: 0;
   }
   .english-info { padding: 18px; }
   .english-title { font-size: 15px; color: #2c3e6e; font-weight: bold; margin-bottom: 8px; }
@@ -577,10 +575,6 @@
     .news-summary { font-size: 12px; }
     .finance-card { padding: 14px; }
     .finance-price { font-size: 20px; }
-    .english-video { height: 160px; font-size: 40px; }
-    .play-btn { width: 48px; height: 48px; font-size: 20px; }
-    .english-title { font-size: 15px; }
-    .subtitle-box { padding: 10px; }
     .subtitle-en, .subtitle-cn { font-size: 13px; }
     .footer-mascot { display: none; }
     .calendar-card { padding: 12px; border-radius: 16px; }
@@ -1207,6 +1201,7 @@ const englishPool = [
     subtitle: '乔布斯斯坦福大学演讲',
     description: '苹果创始人乔布斯2005年在斯坦福大学的毕业演讲，关于人生、死亡与追随内心。',
     emoji: '🎤',
+    youtubeId: 'UF8uR6Z6KLc',
     subtitles: [
       { en: "Stay hungry. Stay foolish.", cn: "求知若渴，虚心若愚。" },
       { en: "Your time is limited, so don\'t waste it living someone else\'s life.", cn: "你的时间有限，不要浪费在过别人的生活上。" },
@@ -1223,6 +1218,7 @@ const englishPool = [
     subtitle: '马斯克：如何快速学习任何知识',
     description: '特斯拉CEO分享他的"第一性原理"学习方法，以及如何高效掌握复杂学科。',
     emoji: '🚀',
+    youtubeId: 'ZDoSI7XhO7E',
     subtitles: [
       { en: "I think it\'s important to reason from first principles.", cn: "我认为从第一性原理出发进行推理非常重要。" },
       { en: "Most reasoning by analogy is fundamentally flawed.", cn: "大多数类比推理从根本上就是有缺陷的。" },
@@ -1239,6 +1235,7 @@ const englishPool = [
     subtitle: 'TED演讲：脆弱的力量',
     description: 'Brené Brown关于勇气、脆弱和真诚连接的经典演讲。',
     emoji: '💝',
+    youtubeId: 'X4Qm9cGRub0',
     subtitles: [
       { en: "Vulnerability is not weakness.", cn: "脆弱不是软弱。" },
       { en: "Connection is why we\'re here.", cn: "连接是我们存在的意义。" },
@@ -1257,11 +1254,16 @@ function loadEnglish() {
   const v = englishPool[Math.floor(Math.random() * englishPool.length)];
   container.innerHTML = `
     <div class="english-card">
-      <div class="english-video" onclick="showToast('▶️ 正在播放视频...')">
-        <div class="play-btn">▶</div>
+      <div class="english-video-wrap">
+        <iframe class="english-iframe"
+          src="https://www.youtube.com/embed/${v.youtubeId}?rel=0&modestbranding=1&hl=zh_CN"
+          title="${v.title}"
+          frameborder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowfullscreen></iframe>
       </div>
       <div class="english-info">
-        <div class="english-title">${v.title}</div>
+        <div class="english-title">${v.emoji} ${v.title}</div>
         <div class="english-subtitle">${v.subtitle} · ${v.description}</div>
         <div style="margin-top:12px;">
           <div style="font-size:13px;color:#8a9bb8;margin-bottom:8px;">📝 字幕（中英对照）</div>
